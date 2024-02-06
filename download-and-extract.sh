@@ -16,7 +16,7 @@ OUTPUT_DIR="./swagger-spec"
 mkdir -p "$TEMP_DIR"
 
 # Step 1: Download Swagger/OpenAPI specification from the live API
-curl -o "$TEMP_DIR/live-api-spec.json" "$API_DOCS_URL"
+curl -o "resources/swagger/live-api-spec.json" "$API_DOCS_URL"
 
 # Step 2: Extract Swagger/OpenAPI specification from the JAR file
 unzip -o "$JAR_FILE" -d "$TEMP_DIR" "META-INF/resources/api-docs.json"

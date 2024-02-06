@@ -22,6 +22,9 @@ dependencies {
 	testImplementation 'org.springframework.boot:spring-boot-starter-test'
 	implementation 'org.projectlombok:lombok:1.18.22'
 	implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.3.0'
+	implementation 'io.swagger.parser.v3:swagger-parser:2.1.20'
+	implementation 'javax.xml.bind:jaxb-api:2.3.1' // Use the latest version
+
 }
 
 tasks.named('test') {
