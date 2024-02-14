@@ -1,50 +1,85 @@
 package uk.co.sainsburys.breaking.change.detect.Service;
 
-import io.swagger.v3.oas.models.Components;
-import io.swagger.v3.oas.models.OpenAPI;
-import io.swagger.v3.oas.models.Paths;
+import io.swagger.v3.oas.models.*;
+import io.swagger.v3.oas.models.media.MediaType;
 import io.swagger.v3.oas.models.media.Schema;
 import io.swagger.v3.oas.models.parameters.Parameter;
 import io.swagger.v3.oas.models.responses.ApiResponse;
 import io.swagger.v3.parser.OpenAPIV3Parser;
 import io.swagger.v3.parser.core.models.ParseOptions;
 import io.swagger.v3.parser.core.models.SwaggerParseResult;
+import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
-import java.util.List;
-import java.util.Map;
+import java.util.*;
+import java.util.function.Function;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 @Service
+//@RequiredArgsConstructor
 public class SpecCompareService {
 
-    public void compareSpecifications(String jarSpecUrl, String liveApiSpecUrl) {
-        String jarSpec = fetchSpecification(jarSpecUrl);
-        String liveApiSpec = fetchSpecification(liveApiSpecUrl);
+    private final OpenAPIV3Parser parser;
 
-        SwaggerParseResult jarParseResult = parseSpecification(jarSpec);
-        SwaggerParseResult liveApiParseResult = parseSpecification(liveApiSpec);
+    public SpecCompareService(OpenAPIV3Parser parser){
+        this.parser = parser;
+    }
 
-//        if (jarParseResult.getMessages().isEmpty() && liveApiParseResult.getMessages().isEmpty()) {
-            // Both specifications are valid, proceed with comparison
-            OpenAPI jarOpenAPI = jarParseResult.getOpenAPI();
-            OpenAPI liveApiOpenAPI = liveApiParseResult.getOpenAPI();
+    public void compareSpecifications(String oldSpecUrl, String newSpecUrl) {
+        String oldSpec = fetchSpecification(oldSpecUrl);
+        String newSpec = fetchSpecification(newSpecUrl);
 
-            // Compare specifications and handle breaking changes
-            comparePaths(jarOpenAPI.getPaths(), liveApiOpenAPI.getPaths());
-            compareComponents(jarOpenAPI.getComponents(), liveApiOpenAPI.getComponents());
+        SwaggerParseResult oldParseResult = parseSpecification(oldSpec);
+        SwaggerParseResult newParseResult = parseSpecification(newSpec);
+
+//        if (oldParseResult.getMessages().isEmpty() && newParseResult.getMessages().isEmpty()) {
+        // Both specifications are valid, proceed with comparison
+        OpenAPI oldOpenAPI = oldParseResult.getOpenAPI();
+        OpenAPI newOpenAPI = newParseResult.getOpenAPI();
+
+        // Compare specifications and handle breaking changes
+        comparePaths(oldOpenAPI.getPaths(), newOpenAPI.getPaths());
+        compareComponents(oldOpenAPI.getComponents(), newOpenAPI.getComponents());
+
+        Map<String, Operation> oldPathsOperations = buildPathMethodMap(oldOpenAPI.getPaths());
+
+        Map<String, Operation> newPathsOperations = buildPathMethodMap(newOpenAPI.getPaths());
+
+        Map< Map<String, Operation>, Map<String, String>> oldFinalMap = new HashMap<>();
+        Map< Map<String, Operation>, Map<String, String>> newFinalMap = new HashMap<>();
+
+        for (Map.Entry<String, Operation> entry : oldPathsOperations.entrySet()){
+
+            oldFinalMap.put(Map.of(entry.getKey(), entry.getValue()), extractRequestFields(entry.getValue(), oldOpenAPI.getComponents()));
+        }
+
+        for (Map.Entry<String, Operation> entry : newPathsOperations.entrySet()){
+
+            newFinalMap.put(Map.of(entry.getKey(), entry.getValue()), extractRequestFields(entry.getValue(), newOpenAPI.getComponents()));
+        }
+
+        List<Map<String, Operation>> removedPaths = oldFinalMap.keySet().stream()
+                .filter(path -> !newFinalMap.containsKey(path))
+                .collect(Collectors.toList());
+
+        if (!removedPaths.isEmpty()){
+            System.out.println("Paths removed: " + removedPaths.stream().map(key -> key.entrySet().stream().toString()));
+            System.out.println("Contains breaking change since path(s) been removed!");
+        }
+
 //        } else {
 //            // Handle parsing errors
 //            System.out.println("Parsing error(s) occurred.");
-//            System.out.println("Jar Specification Errors: " + jarParseResult.getMessages());
-//            System.out.println("Live API Specification Errors: " + liveApiParseResult.getMessages());
+//            System.out.println("Jar Specification Errors: " + oldParseResult.getMessages());
+//            System.out.println("Live API Specification Errors: " + newParseResult.getMessages());
 //        }
     }
 
     private SwaggerParseResult parseSpecification(String spec) {
-        return new OpenAPIV3Parser().readContents(spec, null, new ParseOptions());
+        return parser.readContents(spec, null, new ParseOptions());
     }
 
     private String fetchSpecification(String specUrl) {
@@ -64,45 +99,145 @@ public class SpecCompareService {
         }
     }
 
-    private void comparePaths(Paths jarPaths, Paths liveApiPaths) {
+    private void comparePaths(Paths oldPaths, Paths newPaths) {
+
+
+        Map<String, Operation> oldPathsOperations = buildPathMethodMap(oldPaths);
+
+        Map<String, Operation> newPathsOperations = buildPathMethodMap(newPaths);
+
+        if (oldPathsOperations.equals(newPathsOperations)){
+            System.out.println("No breaking change");
+        }else {
+            List<String> removedPaths = oldPaths.keySet().stream()
+                    .filter(path -> !newPaths.containsKey(path))
+                    .collect(Collectors.toList());
+            System.out.println("Paths removed: " + removedPaths);
+            System.out.println("Contains breaking change since path(s) been removed!");
+        }
         // Paths added
-        List<String> addedPaths = liveApiPaths.keySet().stream()
-                .filter(path -> !jarPaths.containsKey(path))
-                .collect(Collectors.toList());
-        System.out.println("Paths added: " + addedPaths);
-
-        // Paths removed
-        List<String> removedPaths = jarPaths.keySet().stream()
-                .filter(path -> !liveApiPaths.containsKey(path))
-                .collect(Collectors.toList());
-        System.out.println("Paths removed: " + removedPaths);
+//        List<String> addedPaths = newPaths.keySet().stream()
+//                .filter(path -> !oldPaths.containsKey(path))
+//                .collect(Collectors.toList());
+//        System.out.println("Paths added: " + addedPaths);
+//
+//        // Paths removed
+//        List<String> removedPaths = oldPaths.keySet().stream()
+//                .filter(path -> !newPaths.containsKey(path))
+//                .collect(Collectors.toList());
+//        System.out.println("Paths removed: " + removedPaths);
+//
+//        if (!removedPaths.isEmpty()) {
+//            System.out.println("Contains breaking change since path(s) been removed!");
+//        }
     }
 
-    private void compareComponents(Components jarComponents, Components liveApiComponents) {
+    private Map<String, Operation> buildPathMethodMap(Paths paths){
+        Map<String, Function<PathItem, Operation>> mappings = Map.of(
+                "GET", PathItem::getGet,
+                "POST", PathItem::getPost,
+                "PUT", PathItem::getPut,
+                "PATCH", PathItem::getPatch,
+                "DELETE", PathItem::getDelete
+        );
 
-        compareSchemas(jarComponents.getSchemas(), liveApiComponents.getSchemas());
-//        compareResponses(jarComponents.getResponses(), liveApiComponents.getResponses());
-//        compareParameters(jarComponents.getParameters(), liveApiComponents.getParameters());
-        // Add more comparisons as needed...
+        Map<String, Operation> resultMap= paths.entrySet().stream()
+                .flatMap(
+                        entry ->
+                                mappings.entrySet().stream()
+                                        .filter(mappingEntry -> mappingEntry.getValue().apply(entry.getValue()) != null)
+                                        .map(
+                                                mappingEntry -> new AbstractMap.SimpleEntry<>(
+                                                        entry.getKey() + " " + mappingEntry.getKey(),
+                                                        mappingEntry.getValue().apply(entry.getValue())
+                                                )
+                                        )
+                )
+                .collect(Collectors.toMap(
+                        Map.Entry::getKey,
+                        Map.Entry::getValue
+                ));
+
+        return resultMap;
     }
 
-    private void compareSchemas(Map<String, Schema> jarSchemas, Map<String, Schema> liveApiSchemas) {
+    private void compareComponents(Components oldComponents, Components newComponents) {
+
+        compareSchemas(oldComponents.getSchemas(), newComponents.getSchemas());
+//        compareResponses(oldComponents.getResponses(), newComponents.getResponses());
+//        compareParameters(oldComponents.getParameters(), newComponents.getParameters());
+
+    }
+
+    //todo: build same method but for response
+    private  Map<String, String> extractRequestFields(Operation operation, Components components) {
+        if(operation.getRequestBody() != null){
+            MediaType mediaType = operation.getRequestBody().getContent()
+                    .get("application/json");
+            if (mediaType == null) {
+                return Map.of();
+            }
+
+            Schema schema = mediaType.getSchema();
+            Schema definition = components.getSchemas().get(schema.get$ref().substring(20));
+            //todo: recursive build for path -> type map
+            return buildPathTypeMap(definition, ""); // return result from here
+        }
+        return Map.of();
+    }
+
+    private Map<String, String> extractResponseFields(Operation operation, Components components){
+        ApiResponse response = operation.getResponses().get("200");
+
+        if (response == null){
+            return Map.of();
+        }
+
+        Schema schema = response.getContent().get("application/json").getSchema();
+        Schema definition = components.getSchemas().get(schema.get$ref().substring(20));
+        return buildPathTypeMap(definition, "");
+    }
+
+    private Map<String, String> buildPathTypeMap(Schema<?> schema, String currentPath){
+        Map<String, String> pathTypeMap = new HashMap<>();
+
+        if (schema != null) {
+            if("object".equals(schema.getType()) && schema.getProperties() != null){
+                for (Map.Entry<String, Schema> entry : schema.getProperties().entrySet()) {
+                    String propertyName = entry.getKey();
+                    Schema propertySchema = entry.getValue();
+                    String propertyPath = currentPath + "." + propertyName;
+
+                    // Recursively build pathTypeMap for nested properties
+                    Map<String, String> nestedMap = buildPathTypeMap(propertySchema, propertyPath);
+                    pathTypeMap.putAll(nestedMap);
+                } }
+            else{
+                pathTypeMap.put(currentPath, schema.getType());
+            }
+        }
+
+        return pathTypeMap;
+    }
+
+    private void compareSchemas(Map<String, Schema> oldSchemas, Map<String, Schema> newSchemas) {
         // Iterate through schemas in the JAR file
-        for (Map.Entry<String, Schema> entry : jarSchemas.entrySet()) {
+        for (Map.Entry<String, Schema> entry : oldSchemas.entrySet()) {
             String schemaName = entry.getKey();
-            Schema jarSchema = entry.getValue();
+            Schema oldSchema = entry.getValue();
 
             // Check if the same schema exists in the live API
-            if (liveApiSchemas.containsKey(schemaName)) {
-                Schema liveApiSchema = liveApiSchemas.get(schemaName);
+            if (newSchemas.containsKey(schemaName)) {
+                Schema newSchema = newSchemas.get(schemaName);
+                System.out.println(newSchema.contentSchema(newSchema));
 
                 // Compare relevant properties of the schemas
-                if (!jarSchema.equals(liveApiSchema)) {
+                if (!oldSchema.equals(newSchema)) {
                     System.out.println("Schema '" + schemaName + "' has differences.");
                     // Handle or log the differences based on your requirements
                 }
             } else {
-                System.out.println("Schema '" + schemaName + "' is missing in the live API.");
+                System.out.println("Schema '" + schemaName + "' is missing in the new version service.");
                 // Handle or log the missing schema based on your requirements
             }
         }
