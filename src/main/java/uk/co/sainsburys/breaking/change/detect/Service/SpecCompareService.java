@@ -16,7 +16,6 @@ import org.springframework.web.client.RestTemplate;
 import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 @Service
 //@RequiredArgsConstructor
@@ -66,7 +65,7 @@ public class SpecCompareService {
                 .collect(Collectors.toList());
 
         if (!removedPaths.isEmpty()){
-            System.out.println("Paths removed: " + removedPaths.stream().map(key -> key.entrySet().stream().toString()));
+            System.out.println("Paths removed: " + removedPaths.toString());
             System.out.println("Contains breaking change since path(s) been removed!");
         }
 
