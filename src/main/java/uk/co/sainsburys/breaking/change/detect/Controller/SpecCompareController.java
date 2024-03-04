@@ -19,8 +19,8 @@ public class SpecCompareController {
 
     @GetMapping("/compare")
     public String compareSpecifications() {
-        String jarSpecUrl = "http://localhost:8081/v3/api-docs";
-        String liveApiSpecUrl = "http://localhost:8080/v3/api-docs";
+        String jarSpecUrl = "http://localhost:8080/v3/api-docs";
+        String liveApiSpecUrl = "http://localhost:8081/v3/api-docs";
 
         // Call the service to compare specifications
         specCompareService.compareSpecifications(jarSpecUrl, liveApiSpecUrl);

@@ -8,7 +8,11 @@ import io.swagger.v3.oas.models.responses.ApiResponse;
 import io.swagger.v3.parser.OpenAPIV3Parser;
 import io.swagger.v3.parser.core.models.ParseOptions;
 import io.swagger.v3.parser.core.models.SwaggerParseResult;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 import lombok.RequiredArgsConstructor;
+import org.apache.commons.lang3.tuple.Pair;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
@@ -20,6 +24,16 @@ import java.util.stream.Collectors;
 @Service
 //@RequiredArgsConstructor
 public class SpecCompareService {
+
+    @NoArgsConstructor
+    @Data
+    private static class Endpoint {
+        private String path;
+        private Operation operation;
+        private Map<String, String> requestFields;
+        private Map<String, String> responseFields;
+        private List<Parameter> requestParams;
+    }
 
     private final OpenAPIV3Parser parser;
 
@@ -34,48 +48,35 @@ public class SpecCompareService {
         SwaggerParseResult oldParseResult = parseSpecification(oldSpec);
         SwaggerParseResult newParseResult = parseSpecification(newSpec);
 
-//        if (oldParseResult.getMessages().isEmpty() && newParseResult.getMessages().isEmpty()) {
         // Both specifications are valid, proceed with comparison
         OpenAPI oldOpenAPI = oldParseResult.getOpenAPI();
         OpenAPI newOpenAPI = newParseResult.getOpenAPI();
 
+
+        var oldEndpoints = extractEndpoints(oldOpenAPI.getPaths(), oldOpenAPI.getComponents());
+        var newEndpoints = extractEndpoints(newOpenAPI.getPaths(), newOpenAPI.getComponents());
+        // ("/api/book GET", Endpoint)
+
         // Compare specifications and handle breaking changes
-        comparePaths(oldOpenAPI.getPaths(), newOpenAPI.getPaths());
-        compareComponents(oldOpenAPI.getComponents(), newOpenAPI.getComponents());
+        comparePaths(oldEndpoints.keySet(), newEndpoints.keySet());
+//        compareRequestBody(oldEndpoints, newEndpoints);
 
-        Map<String, Operation> oldPathsOperations = buildPathMethodMap(oldOpenAPI.getPaths());
 
-        Map<String, Operation> newPathsOperations = buildPathMethodMap(newOpenAPI.getPaths());
+        // for each path in the old endpoints keyset:
+        //    check that it is still there in newEndpoints, if it isn't, log an error
+        //    if it is, compare the value for that path from oldEndpoints and newEndpoints, in some function where you
+        //    check the operation, request fields, response fields, and request query params have not changed
 
-        Map< Map<String, Operation>, Map<String, String>> oldFinalMap = new HashMap<>();
-        Map< Map<String, Operation>, Map<String, String>> newFinalMap = new HashMap<>();
+        // path -- e.g., GET /clusters/something/path/blah/etc
+        // the actual Operation object
+        // the request body
+        // the response body
+        // the request parameters
 
-        for (Map.Entry<String, Operation> entry : oldPathsOperations.entrySet()){
 
-            oldFinalMap.put(Map.of(entry.getKey(), entry.getValue()), extractRequestFields(entry.getValue(), oldOpenAPI.getComponents()));
-        }
-
-        for (Map.Entry<String, Operation> entry : newPathsOperations.entrySet()){
-
-            newFinalMap.put(Map.of(entry.getKey(), entry.getValue()), extractRequestFields(entry.getValue(), newOpenAPI.getComponents()));
-        }
-
-        List<Map<String, Operation>> removedPaths = oldFinalMap.keySet().stream()
-                .filter(path -> !newFinalMap.containsKey(path))
-                .collect(Collectors.toList());
-
-        if (!removedPaths.isEmpty()){
-            System.out.println("Paths removed: " + removedPaths.toString());
-            System.out.println("Contains breaking change since path(s) been removed!");
-        }
-
-//        } else {
-//            // Handle parsing errors
-//            System.out.println("Parsing error(s) occurred.");
-//            System.out.println("Jar Specification Errors: " + oldParseResult.getMessages());
-//            System.out.println("Live API Specification Errors: " + newParseResult.getMessages());
-//        }
     }
+
+
 
     private SwaggerParseResult parseSpecification(String spec) {
         return parser.readContents(spec, null, new ParseOptions());
@@ -98,40 +99,51 @@ public class SpecCompareService {
         }
     }
 
-    private void comparePaths(Paths oldPaths, Paths newPaths) {
+    private void comparePaths(Set<String> oldPaths, Set<String> newPaths) {
 
-
-        Map<String, Operation> oldPathsOperations = buildPathMethodMap(oldPaths);
-
-        Map<String, Operation> newPathsOperations = buildPathMethodMap(newPaths);
-
-        if (oldPathsOperations.equals(newPathsOperations)){
+        if (oldPaths.equals(newPaths)){
             System.out.println("No breaking change");
         }else {
-            List<String> removedPaths = oldPaths.keySet().stream()
-                    .filter(path -> !newPaths.containsKey(path))
+            List<String> removedPaths = oldPaths.stream()
+                    .filter(path -> !newPaths.contains(path))
                     .collect(Collectors.toList());
             System.out.println("Paths removed: " + removedPaths);
             System.out.println("Contains breaking change since path(s) been removed!");
         }
-        // Paths added
-//        List<String> addedPaths = newPaths.keySet().stream()
-//                .filter(path -> !oldPaths.containsKey(path))
-//                .collect(Collectors.toList());
-//        System.out.println("Paths added: " + addedPaths);
-//
-//        // Paths removed
-//        List<String> removedPaths = oldPaths.keySet().stream()
-//                .filter(path -> !newPaths.containsKey(path))
-//                .collect(Collectors.toList());
-//        System.out.println("Paths removed: " + removedPaths);
-//
-//        if (!removedPaths.isEmpty()) {
-//            System.out.println("Contains breaking change since path(s) been removed!");
-//        }
+
     }
 
-    private Map<String, Operation> buildPathMethodMap(Paths paths){
+//    private void compareRequestBody(Map<String, Endpoint> oldEndPoints, Map<String, Endpoint> newEndPoints){
+//
+//        for (Map.Entry<String, Endpoint> entry : oldEndPoints.entrySet()){
+//            entry.getValue()
+//        }
+//    }
+
+    private Map<String, Endpoint> extractEndpoints(Paths paths, Components components) {
+        return paths.entrySet().stream()
+                .map(it -> extractEndpoints(it, components))
+                .flatMap(Collection::stream)
+                .collect(Collectors.toMap(Endpoint::getPath, Function.identity()));
+    }
+
+    private List<Endpoint> extractEndpoints(Map.Entry<String, PathItem> pathItem, Components components) {
+        var pathMethods = buildPathMethodMap(pathItem);
+        return pathMethods.entrySet().stream()
+                .map(it -> {
+                    var endpoint = new Endpoint();
+                    endpoint.setPath(it.getKey());
+                    endpoint.setOperation(it.getValue());
+                    endpoint.setRequestFields(extractRequestFields(it.getValue(), components));
+                    endpoint.setResponseFields(extractResponseFields(it.getValue(), components));
+                    endpoint.setRequestParams(it.getValue().getParameters());
+                    return endpoint;
+                })
+                .toList();
+    }
+
+
+    private Map<String, Operation> buildPathMethodMap(Map.Entry<String, PathItem> pathItem){
         Map<String, Function<PathItem, Operation>> mappings = Map.of(
                 "GET", PathItem::getGet,
                 "POST", PathItem::getPost,
@@ -140,25 +152,41 @@ public class SpecCompareService {
                 "DELETE", PathItem::getDelete
         );
 
-        Map<String, Operation> resultMap= paths.entrySet().stream()
-                .flatMap(
-                        entry ->
-                                mappings.entrySet().stream()
-                                        .filter(mappingEntry -> mappingEntry.getValue().apply(entry.getValue()) != null)
-                                        .map(
-                                                mappingEntry -> new AbstractMap.SimpleEntry<>(
-                                                        entry.getKey() + " " + mappingEntry.getKey(),
-                                                        mappingEntry.getValue().apply(entry.getValue())
-                                                )
-                                        )
-                )
+        return mappings.entrySet().stream()
+                .filter(mappingEntry -> mappingEntry.getValue().apply(pathItem.getValue()) != null)
                 .collect(Collectors.toMap(
-                        Map.Entry::getKey,
-                        Map.Entry::getValue
-                ));
-
-        return resultMap;
+                        method -> pathItem.getKey() + " " + method.getKey(),
+                        method -> method.getValue().apply(pathItem.getValue())));
     }
+
+//    private Map<String, Operation> buildPathMethodMap(Paths paths){
+//        Map<String, Function<PathItem, Operation>> mappings = Map.of(
+//                "GET", PathItem::getGet,
+//                "POST", PathItem::getPost,
+//                "PUT", PathItem::getPut,
+//                "PATCH", PathItem::getPatch,
+//                "DELETE", PathItem::getDelete
+//        );
+//
+//        Map<String, Operation> resultMap= paths.entrySet().stream()
+//                .flatMap(
+//                        entry ->
+//                                mappings.entrySet().stream()
+//                                        .filter(mappingEntry -> mappingEntry.getValue().apply(entry.getValue()) != null)
+//                                        .map(
+//                                                mappingEntry -> new AbstractMap.SimpleEntry<>(
+//                                                        entry.getKey() + " " + mappingEntry.getKey(),
+//                                                        mappingEntry.getValue().apply(entry.getValue())
+//                                                )
+//                                        ) // "/path/to/endpoint GET" "xxx.getGET()"
+//                )
+//                .collect(Collectors.toMap(
+//                        Map.Entry::getKey,
+//                        Map.Entry::getValue
+//                ));
+//
+//        return resultMap;
+//    }
 
     private void compareComponents(Components oldComponents, Components newComponents) {
 
@@ -167,6 +195,22 @@ public class SpecCompareService {
 //        compareParameters(oldComponents.getParameters(), newComponents.getParameters());
 
     }
+
+//    private Map<String, List<Parameter>> extractRequestParameters(Paths paths){
+//        Map<String, List<Parameter>> resultMap = new HashMap<>();
+//        Map<String, Operation> pathMethodMap = buildPathMethodMap(paths);
+//
+//        for (Map.Entry<String, Operation> entry : pathMethodMap.entrySet()){
+//            if (entry.getValue().getParameters() != null){
+//                resultMap.put(entry.getKey(), entry.getValue().getParameters());
+//            }else{
+//                resultMap.put(entry.getKey(), List.of());
+//            }
+//        }
+//
+//        return resultMap;
+//        // (/api/person, List(parameters))
+//    }
 
     //todo: build same method but for response
     private  Map<String, String> extractRequestFields(Operation operation, Components components) {
@@ -177,24 +221,29 @@ public class SpecCompareService {
                 return Map.of();
             }
 
+
             Schema schema = mediaType.getSchema();
-            Schema definition = components.getSchemas().get(schema.get$ref().substring(20));
+            Schema definition = components.getSchemas().get(schema.get$ref()
+                    .substring(schema.get$ref().lastIndexOf("/") + 1));
             //todo: recursive build for path -> type map
             return buildPathTypeMap(definition, ""); // return result from here
         }
+
         return Map.of();
     }
 
     private Map<String, String> extractResponseFields(Operation operation, Components components){
         ApiResponse response = operation.getResponses().get("200");
 
-        if (response == null){
+        if (response == null || response.getContent() == null || response.getContent().get("*/*") == null
+                || response.getContent().get("*/*").getSchema().get$ref() == null){
             return Map.of();
+        }else{
+            Schema schema = response.getContent().get("*/*").getSchema();
+            Schema definition = components.getSchemas().get(schema.get$ref()
+                    .substring(schema.get$ref().lastIndexOf("/") + 1));
+            return buildPathTypeMap(definition, "");
         }
-
-        Schema schema = response.getContent().get("application/json").getSchema();
-        Schema definition = components.getSchemas().get(schema.get$ref().substring(20));
-        return buildPathTypeMap(definition, "");
     }
 
     private Map<String, String> buildPathTypeMap(Schema<?> schema, String currentPath){
