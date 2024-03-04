@@ -8,11 +8,8 @@ import io.swagger.v3.oas.models.responses.ApiResponse;
 import io.swagger.v3.parser.OpenAPIV3Parser;
 import io.swagger.v3.parser.core.models.ParseOptions;
 import io.swagger.v3.parser.core.models.SwaggerParseResult;
-import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-import lombok.RequiredArgsConstructor;
-import org.apache.commons.lang3.tuple.Pair;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
@@ -59,7 +56,8 @@ public class SpecCompareService {
 
         // Compare specifications and handle breaking changes
         comparePaths(oldEndpoints.keySet(), newEndpoints.keySet());
-//        compareRequestBody(oldEndpoints, newEndpoints);
+        compareRequestBody(oldEndpoints, newEndpoints);
+        compareParameters(oldEndpoints, newEndpoints);
 
 
         // for each path in the old endpoints keyset:
@@ -101,9 +99,7 @@ public class SpecCompareService {
 
     private void comparePaths(Set<String> oldPaths, Set<String> newPaths) {
 
-        if (oldPaths.equals(newPaths)){
-            System.out.println("No breaking change");
-        }else {
+        if (!oldPaths.equals(newPaths)){
             List<String> removedPaths = oldPaths.stream()
                     .filter(path -> !newPaths.contains(path))
                     .collect(Collectors.toList());
@@ -113,12 +109,63 @@ public class SpecCompareService {
 
     }
 
-//    private void compareRequestBody(Map<String, Endpoint> oldEndPoints, Map<String, Endpoint> newEndPoints){
-//
-//        for (Map.Entry<String, Endpoint> entry : oldEndPoints.entrySet()){
-//            entry.getValue()
-//        }
-//    }
+    private void compareRequestBody(Map<String, Endpoint> oldEndPoints, Map<String, Endpoint> newEndPoints){
+
+        for (Map.Entry<String, Endpoint> entry : oldEndPoints.entrySet()){
+
+            var oldEndPoint = entry.getValue();
+            var newEndpoint = newEndPoints.get(entry.getKey());
+            if (!oldEndPoint.getRequestFields().equals(newEndpoint.getRequestFields())){
+                System.out.println("Contains breaking changes since request field is difference!");
+            }
+        }
+    }
+
+    private void compareResponseBody(Map<String, Endpoint> oldEndPoints, Map<String, Endpoint> newEndPoints){
+
+        for (Map.Entry<String, Endpoint> entry : oldEndPoints.entrySet()){
+
+            var oldEndPoint = entry.getValue();
+            var newEndpoint = newEndPoints.get(entry.getKey());
+            for(String key: oldEndPoint.getResponseFields().keySet()){
+                if (!newEndpoint.getResponseFields().containsKey(key)){
+                    System.out.println("Contains breaking changes since some response field being removed!");
+                }
+            }
+        }
+    }
+
+    private void compareParameters(Map<String, Endpoint> oldEndPoints, Map<String, Endpoint> newEndPoints){
+
+        for (Map.Entry<String, Endpoint> entry : oldEndPoints.entrySet()) {
+
+            var oldEndPointParam = entry.getValue().getRequestParams();
+            var newEndpointParam = newEndPoints.get(entry.getKey()).getRequestParams();
+
+            List<Parameter> same = oldEndPointParam.stream().filter(it -> newEndpointParam.contains(it))
+                    .collect(Collectors.toList());
+
+            for (Parameter param : same){
+                if (!newEndpointParam.stream().anyMatch(it -> it.equals(param)) && param.getRequired() == true){
+                    System.out.println("Contains breaking changes since some required parameters being changed!");
+                }
+            }
+
+            List<Parameter> removed = oldEndPointParam.stream().filter(it -> !newEndpointParam.contains(it))
+                    .collect(Collectors.toList());
+
+            List <Parameter> added = newEndpointParam.stream().filter(it -> !oldEndPointParam.contains(it))
+                    .collect(Collectors.toList());
+
+            if (removed.stream().anyMatch(it -> it.getRequired() == true)){
+                System.out.println("Contains breaking changes since some required parameters doesn't exist!");
+            }
+
+            if (added.stream().anyMatch(it -> it.getRequired() == true)){
+                System.out.println("Contains breaking changes since some required parameters being added!");
+            }
+        }
+    }
 
     private Map<String, Endpoint> extractEndpoints(Paths paths, Components components) {
         return paths.entrySet().stream()
@@ -158,59 +205,6 @@ public class SpecCompareService {
                         method -> pathItem.getKey() + " " + method.getKey(),
                         method -> method.getValue().apply(pathItem.getValue())));
     }
-
-//    private Map<String, Operation> buildPathMethodMap(Paths paths){
-//        Map<String, Function<PathItem, Operation>> mappings = Map.of(
-//                "GET", PathItem::getGet,
-//                "POST", PathItem::getPost,
-//                "PUT", PathItem::getPut,
-//                "PATCH", PathItem::getPatch,
-//                "DELETE", PathItem::getDelete
-//        );
-//
-//        Map<String, Operation> resultMap= paths.entrySet().stream()
-//                .flatMap(
-//                        entry ->
-//                                mappings.entrySet().stream()
-//                                        .filter(mappingEntry -> mappingEntry.getValue().apply(entry.getValue()) != null)
-//                                        .map(
-//                                                mappingEntry -> new AbstractMap.SimpleEntry<>(
-//                                                        entry.getKey() + " " + mappingEntry.getKey(),
-//                                                        mappingEntry.getValue().apply(entry.getValue())
-//                                                )
-//                                        ) // "/path/to/endpoint GET" "xxx.getGET()"
-//                )
-//                .collect(Collectors.toMap(
-//                        Map.Entry::getKey,
-//                        Map.Entry::getValue
-//                ));
-//
-//        return resultMap;
-//    }
-
-    private void compareComponents(Components oldComponents, Components newComponents) {
-
-        compareSchemas(oldComponents.getSchemas(), newComponents.getSchemas());
-//        compareResponses(oldComponents.getResponses(), newComponents.getResponses());
-//        compareParameters(oldComponents.getParameters(), newComponents.getParameters());
-
-    }
-
-//    private Map<String, List<Parameter>> extractRequestParameters(Paths paths){
-//        Map<String, List<Parameter>> resultMap = new HashMap<>();
-//        Map<String, Operation> pathMethodMap = buildPathMethodMap(paths);
-//
-//        for (Map.Entry<String, Operation> entry : pathMethodMap.entrySet()){
-//            if (entry.getValue().getParameters() != null){
-//                resultMap.put(entry.getKey(), entry.getValue().getParameters());
-//            }else{
-//                resultMap.put(entry.getKey(), List.of());
-//            }
-//        }
-//
-//        return resultMap;
-//        // (/api/person, List(parameters))
-//    }
 
     //todo: build same method but for response
     private  Map<String, String> extractRequestFields(Operation operation, Components components) {
@@ -267,72 +261,4 @@ public class SpecCompareService {
 
         return pathTypeMap;
     }
-
-    private void compareSchemas(Map<String, Schema> oldSchemas, Map<String, Schema> newSchemas) {
-        // Iterate through schemas in the JAR file
-        for (Map.Entry<String, Schema> entry : oldSchemas.entrySet()) {
-            String schemaName = entry.getKey();
-            Schema oldSchema = entry.getValue();
-
-            // Check if the same schema exists in the live API
-            if (newSchemas.containsKey(schemaName)) {
-                Schema newSchema = newSchemas.get(schemaName);
-                System.out.println(newSchema.contentSchema(newSchema));
-
-                // Compare relevant properties of the schemas
-                if (!oldSchema.equals(newSchema)) {
-                    System.out.println("Schema '" + schemaName + "' has differences.");
-                    // Handle or log the differences based on your requirements
-                }
-            } else {
-                System.out.println("Schema '" + schemaName + "' is missing in the new version service.");
-                // Handle or log the missing schema based on your requirements
-            }
-        }
-    }
-
-    private void compareResponses(Map<String, ApiResponse> jarResponses, Map<String, ApiResponse> liveApiResponses) {
-        // Iterate through responses in the JAR file
-        for (Map.Entry<String, ApiResponse> entry : jarResponses.entrySet()) {
-            String responseName = entry.getKey();
-            ApiResponse jarResponse = entry.getValue();
-
-            // Check if the same response exists in the live API
-            if (liveApiResponses.containsKey(responseName)) {
-                ApiResponse liveApiResponse = liveApiResponses.get(responseName);
-
-                // Compare relevant properties of the responses
-                if (!jarResponse.equals(liveApiResponse)) {
-                    System.out.println("Response '" + responseName + "' has differences.");
-                    // Handle or log the differences based on your requirements
-                }
-            } else {
-                System.out.println("Response '" + responseName + "' is missing in the live API.");
-                // Handle or log the missing response based on your requirements
-            }
-        }
-    }
-
-    private void compareParameters(Map<String, Parameter> jarParameters, Map<String, Parameter> liveApiParameters) {
-        // Iterate through parameters in the JAR file
-        for (Map.Entry<String, Parameter> entry : jarParameters.entrySet()) {
-            String parameterName = entry.getKey();
-            Parameter jarParameter = entry.getValue();
-
-            // Check if the same parameter exists in the live API
-            if (liveApiParameters.containsKey(parameterName)) {
-                Parameter liveApiParameter = liveApiParameters.get(parameterName);
-
-                // Compare relevant properties of the parameters
-                if (!jarParameter.equals(liveApiParameter)) {
-                    System.out.println("Parameter '" + parameterName + "' has differences.");
-                    // Handle or log the differences based on your requirements
-                }
-            } else {
-                System.out.println("Parameter '" + parameterName + "' is missing in the live API.");
-                // Handle or log the missing parameter based on your requirements
-            }
-        }
-    }
-
 }
