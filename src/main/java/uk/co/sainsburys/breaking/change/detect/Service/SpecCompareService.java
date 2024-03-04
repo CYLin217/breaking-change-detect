@@ -115,7 +115,7 @@ public class SpecCompareService {
 
             var oldEndPoint = entry.getValue();
             var newEndpoint = newEndPoints.get(entry.getKey());
-            if (!oldEndPoint.getRequestFields().equals(newEndpoint.getRequestFields())){
+            if (newEndpoint != null && !oldEndPoint.getRequestFields().equals(newEndpoint.getRequestFields()) ){
                 System.out.println("Contains breaking changes since request field is difference!");
             }
         }
@@ -127,9 +127,11 @@ public class SpecCompareService {
 
             var oldEndPoint = entry.getValue();
             var newEndpoint = newEndPoints.get(entry.getKey());
-            for(String key: oldEndPoint.getResponseFields().keySet()){
-                if (!newEndpoint.getResponseFields().containsKey(key)){
-                    System.out.println("Contains breaking changes since some response field being removed!");
+            if (newEndpoint != null){
+                for(String key: oldEndPoint.getResponseFields().keySet()){
+                    if (!newEndpoint.getResponseFields().containsKey(key)){
+                        System.out.println("Contains breaking changes since some response field being removed!");
+                    }
                 }
             }
         }
@@ -140,30 +142,34 @@ public class SpecCompareService {
         for (Map.Entry<String, Endpoint> entry : oldEndPoints.entrySet()) {
 
             var oldEndPointParam = entry.getValue().getRequestParams();
-            var newEndpointParam = newEndPoints.get(entry.getKey()).getRequestParams();
+            var newEndpoint = newEndPoints.get(entry.getKey());
 
-            List<Parameter> same = oldEndPointParam.stream().filter(it -> newEndpointParam.contains(it))
-                    .collect(Collectors.toList());
+            if (oldEndPointParam != null && newEndpoint != null){
+                List<Parameter> same = oldEndPointParam.stream().filter(it -> newEndpoint.getRequestParams().contains(it))
+                        .collect(Collectors.toList());
 
-            for (Parameter param : same){
-                if (!newEndpointParam.stream().anyMatch(it -> it.equals(param)) && param.getRequired() == true){
-                    System.out.println("Contains breaking changes since some required parameters being changed!");
+                for (Parameter param : same){
+                    if (!newEndpoint.getRequestParams().stream().anyMatch(it -> it.equals(param)) && param.getRequired() == true){
+                        System.out.println("Contains breaking changes since some required parameters being changed!");
+                    }
+                }
+
+                List<Parameter> removed = oldEndPointParam.stream().filter(it -> !newEndpoint.getRequestParams().contains(it))
+                        .collect(Collectors.toList());
+
+                List <Parameter> added = newEndpoint.getRequestParams().stream().filter(it -> !oldEndPointParam.contains(it))
+                        .collect(Collectors.toList());
+
+                if (removed.stream().anyMatch(it -> it.getRequired() == true)){
+                    System.out.println("Contains breaking changes since some required parameters doesn't exist!");
+                }
+
+                if (added.stream().anyMatch(it -> it.getRequired() == true)){
+                    System.out.println("Contains breaking changes since some required parameters being added!");
                 }
             }
 
-            List<Parameter> removed = oldEndPointParam.stream().filter(it -> !newEndpointParam.contains(it))
-                    .collect(Collectors.toList());
 
-            List <Parameter> added = newEndpointParam.stream().filter(it -> !oldEndPointParam.contains(it))
-                    .collect(Collectors.toList());
-
-            if (removed.stream().anyMatch(it -> it.getRequired() == true)){
-                System.out.println("Contains breaking changes since some required parameters doesn't exist!");
-            }
-
-            if (added.stream().anyMatch(it -> it.getRequired() == true)){
-                System.out.println("Contains breaking changes since some required parameters being added!");
-            }
         }
     }
 
