@@ -1,4 +1,4 @@
-package uk.co.sainsburys.breaking.change.detect;
+package uk.co.sainsburys.breakingchangedetect;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;

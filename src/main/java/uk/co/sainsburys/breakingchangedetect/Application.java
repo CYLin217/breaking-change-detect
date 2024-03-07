@@ -1,4 +1,4 @@
-package uk.co.sainsburys.breaking.change.detect;
+package uk.co.sainsburys.breakingchangedetect;
 
 import io.swagger.v3.oas.annotations.OpenAPIDefinition;
 import io.swagger.v3.parser.OpenAPIV3Parser;

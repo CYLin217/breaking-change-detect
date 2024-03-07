@@ -1,10 +1,10 @@
-package uk.co.sainsburys.breaking.change.detect.Controller;
+package uk.co.sainsburys.breakingchangedetect.Controller;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import uk.co.sainsburys.breaking.change.detect.Entity.Book;
-import uk.co.sainsburys.breaking.change.detect.Service.BookService;
+import uk.co.sainsburys.breakingchangedetect.Entity.Book;
+import uk.co.sainsburys.breakingchangedetect.Service.BookService;
 
 import java.util.List;
 

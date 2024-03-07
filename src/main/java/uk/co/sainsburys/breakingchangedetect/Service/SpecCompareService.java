@@ -1,4 +1,4 @@
-package uk.co.sainsburys.breaking.change.detect.Service;
+package uk.co.sainsburys.breakingchangedetect.Service;
 
 import io.swagger.v3.oas.models.*;
 import io.swagger.v3.oas.models.media.MediaType;

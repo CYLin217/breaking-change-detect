@@ -1,11 +1,10 @@
-package uk.co.sainsburys.breaking.change.detect.Controller;
+package uk.co.sainsburys.breakingchangedetect.Controller;
 
-import io.swagger.v3.oas.annotations.Operation;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import uk.co.sainsburys.breaking.change.detect.Service.SpecCompareService;
+import uk.co.sainsburys.breakingchangedetect.Service.SpecCompareService;
 
 @RestController
 @RequestMapping("/api/comparison")
