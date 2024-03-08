@@ -57,6 +57,7 @@ public class SpecCompareService {
         // Compare specifications and handle breaking changes
         comparePaths(oldEndpoints.keySet(), newEndpoints.keySet());
         compareRequestBody(oldEndpoints, newEndpoints);
+        compareResponseBody(oldEndpoints, newEndpoints);
         compareParameters(oldEndpoints, newEndpoints);
 
 
@@ -98,15 +99,13 @@ public class SpecCompareService {
     }
 
     private void comparePaths(Set<String> oldPaths, Set<String> newPaths) {
+        Set<String> removedPaths = new HashSet<>(oldPaths);
+        removedPaths.removeAll(newPaths);
 
-        if (!oldPaths.equals(newPaths)){
-            List<String> removedPaths = oldPaths.stream()
-                    .filter(path -> !newPaths.contains(path))
-                    .collect(Collectors.toList());
+        if (!removedPaths.isEmpty()) {
             System.out.println("Paths removed: " + removedPaths);
-            System.out.println("Contains breaking change since path(s) been removed!");
+            System.out.println("Contains breaking change since path(s) have been removed!");
         }
-
     }
 
     private void compareRequestBody(Map<String, Endpoint> oldEndPoints, Map<String, Endpoint> newEndPoints){
@@ -137,34 +136,42 @@ public class SpecCompareService {
         }
     }
 
+    private boolean areParametersEqual(Parameter oldParam, Parameter newParam){
+        return Objects.equals(oldParam.getName(), newParam.getName())
+                && Objects.equals(oldParam.getIn(), newParam.getIn())
+                && Objects.equals(oldParam.getRequired(), newParam.getRequired())
+                && Objects.equals(oldParam.get$ref(), newParam.get$ref());
+    }
     private void compareParameters(Map<String, Endpoint> oldEndPoints, Map<String, Endpoint> newEndPoints){
 
         for (Map.Entry<String, Endpoint> entry : oldEndPoints.entrySet()) {
 
-            var oldEndPointParam = entry.getValue().getRequestParams();
+            var oldEndPointParams = entry.getValue().getRequestParams();
             var newEndpoint = newEndPoints.get(entry.getKey());
 
-            if (oldEndPointParam != null && newEndpoint != null){
-                List<Parameter> same = oldEndPointParam.stream().filter(it -> newEndpoint.getRequestParams().contains(it))
+            if (oldEndPointParams != null && newEndpoint != null){
+                List<Parameter> same = oldEndPointParams.stream().filter(param -> newEndpoint.getRequestParams().stream()
+                                .anyMatch(newParam -> areParametersEqual(param, newParam)))
                         .collect(Collectors.toList());
 
                 for (Parameter param : same){
-                    if (!newEndpoint.getRequestParams().stream().anyMatch(it -> it.equals(param)) && param.getRequired() == true){
+                    if (!newEndpoint.getRequestParams().stream().anyMatch(newParam -> areParametersEqual(param, newParam))
+                            && param.getRequired()){
                         System.out.println("Contains breaking changes since some required parameters being changed!");
                     }
                 }
 
-                List<Parameter> removed = oldEndPointParam.stream().filter(it -> !newEndpoint.getRequestParams().contains(it))
-                        .collect(Collectors.toList());
+                List<Parameter> removed = oldEndPointParams.stream().filter(param -> newEndpoint.getRequestParams().stream()
+                        .noneMatch(newParam -> areParametersEqual(param, newParam))).collect(Collectors.toList());
 
-                List <Parameter> added = newEndpoint.getRequestParams().stream().filter(it -> !oldEndPointParam.contains(it))
-                        .collect(Collectors.toList());
+                List <Parameter> added = newEndpoint.getRequestParams().stream().filter(newParam -> oldEndPointParams.stream()
+                        .noneMatch(param -> areParametersEqual(param, newParam))).collect(Collectors.toList());
 
-                if (removed.stream().anyMatch(it -> it.getRequired() == true)){
+                if (removed.stream().anyMatch(Parameter::getRequired)){
                     System.out.println("Contains breaking changes since some required parameters doesn't exist!");
                 }
 
-                if (added.stream().anyMatch(it -> it.getRequired() == true)){
+                if (added.stream().anyMatch(Parameter::getRequired)){
                     System.out.println("Contains breaking changes since some required parameters being added!");
                 }
             }
@@ -185,11 +192,12 @@ public class SpecCompareService {
         return pathMethods.entrySet().stream()
                 .map(it -> {
                     var endpoint = new Endpoint();
+                    var value = it.getValue();
                     endpoint.setPath(it.getKey());
-                    endpoint.setOperation(it.getValue());
-                    endpoint.setRequestFields(extractRequestFields(it.getValue(), components));
-                    endpoint.setResponseFields(extractResponseFields(it.getValue(), components));
-                    endpoint.setRequestParams(it.getValue().getParameters());
+                    endpoint.setOperation(value);
+                    endpoint.setRequestFields(extractRequestFields(value, components));
+                    endpoint.setResponseFields(extractResponseFields(value, components));
+                    endpoint.setRequestParams(value.getParameters());
                     return endpoint;
                 })
                 .toList();
@@ -213,24 +221,23 @@ public class SpecCompareService {
     }
 
     //todo: build same method but for response
-    private  Map<String, String> extractRequestFields(Operation operation, Components components) {
-        if(operation.getRequestBody() != null){
-            MediaType mediaType = operation.getRequestBody().getContent()
-                    .get("application/json");
-            if (mediaType == null) {
-                return Map.of();
-            }
-
-
-            Schema schema = mediaType.getSchema();
-            Schema definition = components.getSchemas().get(schema.get$ref()
-                    .substring(schema.get$ref().lastIndexOf("/") + 1));
-            //todo: recursive build for path -> type map
-            return buildPathTypeMap(definition, ""); // return result from here
+    private Map<String, String> extractRequestFields(Operation operation, Components components) {
+        if (operation.getRequestBody() == null) {
+            return Map.of();
         }
 
-        return Map.of();
+        MediaType mediaType = operation.getRequestBody().getContent().get("application/json");
+        if (mediaType == null) {
+            return Map.of();
+        }
+
+        Schema schema = mediaType.getSchema();
+        Schema definition = components.getSchemas().get(schema.get$ref().substring(schema.get$ref().lastIndexOf("/") + 1));
+
+        // todo: recursive build for path -> type map
+        return buildPathTypeMap(definition, ""); // return result from here
     }
+
 
     private Map<String, String> extractResponseFields(Operation operation, Components components){
         ApiResponse response = operation.getResponses().get("200");
@@ -238,33 +245,37 @@ public class SpecCompareService {
         if (response == null || response.getContent() == null || response.getContent().get("*/*") == null
                 || response.getContent().get("*/*").getSchema().get$ref() == null){
             return Map.of();
-        }else{
-            Schema schema = response.getContent().get("*/*").getSchema();
-            Schema definition = components.getSchemas().get(schema.get$ref()
-                    .substring(schema.get$ref().lastIndexOf("/") + 1));
-            return buildPathTypeMap(definition, "");
         }
+
+        Schema schema = response.getContent().get("*/*").getSchema();
+        Schema definition = components.getSchemas().get(schema.get$ref()
+                    .substring(schema.get$ref().lastIndexOf("/") + 1));
+        return buildPathTypeMap(definition, "");
+
     }
 
-    private Map<String, String> buildPathTypeMap(Schema<?> schema, String currentPath){
+    private Map<String, String> buildPathTypeMap(Schema<?> schema, String currentPath) {
         Map<String, String> pathTypeMap = new HashMap<>();
 
-        if (schema != null) {
-            if("object".equals(schema.getType()) && schema.getProperties() != null){
-                for (Map.Entry<String, Schema> entry : schema.getProperties().entrySet()) {
-                    String propertyName = entry.getKey();
-                    Schema propertySchema = entry.getValue();
-                    String propertyPath = currentPath + "." + propertyName;
+        if (schema == null) {
+            return pathTypeMap;
+        }
 
-                    // Recursively build pathTypeMap for nested properties
-                    Map<String, String> nestedMap = buildPathTypeMap(propertySchema, propertyPath);
-                    pathTypeMap.putAll(nestedMap);
-                } }
-            else{
-                pathTypeMap.put(currentPath, schema.getType());
+        if ("object".equals(schema.getType()) && schema.getProperties() != null) {
+            for (Map.Entry<String, Schema> entry : schema.getProperties().entrySet()) {
+                String propertyName = entry.getKey();
+                Schema propertySchema = entry.getValue();
+                String propertyPath = currentPath + "." + propertyName;
+
+                // Recursively build pathTypeMap for nested properties
+                Map<String, String> nestedMap = buildPathTypeMap(propertySchema, propertyPath);
+                pathTypeMap.putAll(nestedMap);
             }
+        } else {
+            pathTypeMap.put(currentPath, schema.getType());
         }
 
         return pathTypeMap;
     }
+
 }
