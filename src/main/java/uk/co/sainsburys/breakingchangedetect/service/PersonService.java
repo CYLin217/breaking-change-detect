@@ -1,9 +1,9 @@
-package uk.co.sainsburys.breakingchangedetect.Service;
+package uk.co.sainsburys.breakingchangedetect.service;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
-import uk.co.sainsburys.breakingchangedetect.Entity.Person;
-import uk.co.sainsburys.breakingchangedetect.Repository.PersonRepository;
+import uk.co.sainsburys.breakingchangedetect.entity.Person;
+import uk.co.sainsburys.breakingchangedetect.repository.PersonRepository;
 
 import java.util.List;
 

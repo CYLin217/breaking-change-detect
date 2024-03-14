@@ -10,8 +10,8 @@ import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 
 @SpringBootApplication
 @OpenAPIDefinition
-@EntityScan("uk.co.sainsburys.breaking.change.detect.Entity")
-@EnableJpaRepositories("uk.co.sainsburys.breaking.change.detect.Repository")
+@EntityScan("uk.co.sainsburys.breakingchangedetect.entity")
+@EnableJpaRepositories("uk.co.sainsburys.breakingchangedetect.repository")
 public class Application {
 
 	public static void main(String[] args) {

@@ -1,4 +1,4 @@
-package uk.co.sainsburys.breakingchangedetect.Service;
+package uk.co.sainsburys.breakingchangedetect.service;
 
 import io.swagger.v3.oas.models.*;
 import io.swagger.v3.oas.models.media.MediaType;
@@ -13,6 +13,9 @@ import lombok.NoArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
+import uk.co.sainsburys.breakingchangedetect.entity.Entry;
+import uk.co.sainsburys.breakingchangedetect.entity.Type;
+import uk.co.sainsburys.breakingchangedetect.entity.dto.DifferenceCase;
 
 import java.util.*;
 import java.util.function.Function;
@@ -38,7 +41,10 @@ public class SpecCompareService {
         this.parser = parser;
     }
 
-    public void compareSpecifications(String oldSpecUrl, String newSpecUrl) {
+    public List<DifferenceCase> compareSpecifications(String oldSpecUrl, String newSpecUrl) {
+
+        List<DifferenceCase> result = new ArrayList<>();
+
         String oldSpec = fetchSpecification(oldSpecUrl);
         String newSpec = fetchSpecification(newSpecUrl);
 
@@ -55,12 +61,12 @@ public class SpecCompareService {
         // ("/api/book GET", Endpoint)
 
         // Compare specifications and handle breaking changes
-        comparePaths(oldEndpoints.keySet(), newEndpoints.keySet());
-        compareRequestBody(oldEndpoints, newEndpoints);
-        compareResponseBody(oldEndpoints, newEndpoints);
-        compareParameters(oldEndpoints, newEndpoints);
+        result.addAll(comparePaths(oldEndpoints.keySet(), newEndpoints.keySet()));
+        result.addAll(compareRequestBody(oldEndpoints, newEndpoints));
+        result.addAll(compareResponseBody(oldEndpoints, newEndpoints));
+        result.addAll(compareParameters(oldEndpoints, newEndpoints));
 
-
+        return result;
         // for each path in the old endpoints keyset:
         //    check that it is still there in newEndpoints, if it isn't, log an error
         //    if it is, compare the value for that path from oldEndpoints and newEndpoints, in some function where you
@@ -98,30 +104,41 @@ public class SpecCompareService {
         }
     }
 
-    private void comparePaths(Set<String> oldPaths, Set<String> newPaths) {
+    private List<DifferenceCase> comparePaths(Set<String> oldPaths, Set<String> newPaths) {
         Set<String> removedPaths = new HashSet<>(oldPaths);
+        List<DifferenceCase> pathResult = new ArrayList<>();
         removedPaths.removeAll(newPaths);
 
         if (!removedPaths.isEmpty()) {
             System.out.println("Paths removed: " + removedPaths);
             System.out.println("Contains breaking change since path(s) have been removed!");
+            removedPaths.forEach(path -> pathResult.add(DifferenceCase.builder()
+                    .type(Type.REMOVED_PATH).entry(Entry.ENDPOINT).endPoint(path).build()));
         }
+
+        return pathResult;
     }
 
-    private void compareRequestBody(Map<String, Endpoint> oldEndPoints, Map<String, Endpoint> newEndPoints){
+    private List<DifferenceCase> compareRequestBody(Map<String, Endpoint> oldEndPoints, Map<String, Endpoint> newEndPoints){
 
+        List<DifferenceCase> requestResult = new ArrayList<>();
         for (Map.Entry<String, Endpoint> entry : oldEndPoints.entrySet()){
 
             var oldEndPoint = entry.getValue();
             var newEndpoint = newEndPoints.get(entry.getKey());
             if (newEndpoint != null && !oldEndPoint.getRequestFields().equals(newEndpoint.getRequestFields()) ){
                 System.out.println("Contains breaking changes since request field is difference!");
+                requestResult.add(DifferenceCase.builder()
+                        .type(Type.REQUEST_FIELD_DIFFER).entry(Entry.ENDPOINT).endPoint(entry.getValue().getPath()).build());
             }
         }
+
+        return requestResult;
     }
 
-    private void compareResponseBody(Map<String, Endpoint> oldEndPoints, Map<String, Endpoint> newEndPoints){
+    private List<DifferenceCase> compareResponseBody(Map<String, Endpoint> oldEndPoints, Map<String, Endpoint> newEndPoints){
 
+        List<DifferenceCase> responseResult = new ArrayList<>();
         for (Map.Entry<String, Endpoint> entry : oldEndPoints.entrySet()){
 
             var oldEndPoint = entry.getValue();
@@ -130,10 +147,14 @@ public class SpecCompareService {
                 for(String key: oldEndPoint.getResponseFields().keySet()){
                     if (!newEndpoint.getResponseFields().containsKey(key)){
                         System.out.println("Contains breaking changes since some response field being removed!");
+                        responseResult.add(DifferenceCase.builder()
+                                .type(Type.RESPONSE_FIELD_REMOVED).entry(Entry.ENDPOINT).endPoint(entry.getValue().getPath()).build());
                     }
                 }
             }
         }
+
+        return responseResult;
     }
 
     private boolean areParametersEqual(Parameter oldParam, Parameter newParam){
@@ -142,8 +163,9 @@ public class SpecCompareService {
                 && Objects.equals(oldParam.getRequired(), newParam.getRequired())
                 && Objects.equals(oldParam.get$ref(), newParam.get$ref());
     }
-    private void compareParameters(Map<String, Endpoint> oldEndPoints, Map<String, Endpoint> newEndPoints){
+    private List<DifferenceCase> compareParameters(Map<String, Endpoint> oldEndPoints, Map<String, Endpoint> newEndPoints){
 
+        List<DifferenceCase> paramResult = new ArrayList<>();
         for (Map.Entry<String, Endpoint> entry : oldEndPoints.entrySet()) {
 
             var oldEndPointParams = entry.getValue().getRequestParams();
@@ -158,6 +180,8 @@ public class SpecCompareService {
                     if (!newEndpoint.getRequestParams().stream().anyMatch(newParam -> areParametersEqual(param, newParam))
                             && param.getRequired()){
                         System.out.println("Contains breaking changes since some required parameters being changed!");
+                        paramResult.add(DifferenceCase.builder()
+                                .type(Type.REQUIRED_PARAM_CHANGED).entry(Entry.ENDPOINT).endPoint(entry.getValue().getPath()).build());
                     }
                 }
 
@@ -169,15 +193,19 @@ public class SpecCompareService {
 
                 if (removed.stream().anyMatch(Parameter::getRequired)){
                     System.out.println("Contains breaking changes since some required parameters doesn't exist!");
+                    paramResult.add(DifferenceCase.builder()
+                            .type(Type.REQUIRED_PARAM_NOT_EXIST).entry(Entry.ENDPOINT).endPoint(entry.getValue().getPath()).build());
                 }
 
                 if (added.stream().anyMatch(Parameter::getRequired)){
                     System.out.println("Contains breaking changes since some required parameters being added!");
+                    paramResult.add(DifferenceCase.builder()
+                            .type(Type.REQUIRED_PARAM_ADDED).entry(Entry.ENDPOINT).endPoint(entry.getValue().getPath()).build());
                 }
             }
-
-
         }
+
+        return paramResult;
     }
 
     private Map<String, Endpoint> extractEndpoints(Paths paths, Components components) {
