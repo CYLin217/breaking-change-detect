@@ -10,6 +10,8 @@ import io.swagger.v3.parser.core.models.ParseOptions;
 import io.swagger.v3.parser.core.models.SwaggerParseResult;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
@@ -37,6 +39,8 @@ public class SpecCompareService {
 
     private final OpenAPIV3Parser parser;
 
+    private static final Logger logger = LoggerFactory.getLogger(SpecCompareService.class);
+
     public SpecCompareService(OpenAPIV3Parser parser){
         this.parser = parser;
     }
@@ -45,15 +49,9 @@ public class SpecCompareService {
 
         List<DifferenceCase> result = new ArrayList<>();
 
-        String oldSpec = fetchSpecification(oldSpecUrl);
-        String newSpec = fetchSpecification(newSpecUrl);
-
-        SwaggerParseResult oldParseResult = parseSpecification(oldSpec);
-        SwaggerParseResult newParseResult = parseSpecification(newSpec);
-
         // Both specifications are valid, proceed with comparison
-        OpenAPI oldOpenAPI = oldParseResult.getOpenAPI();
-        OpenAPI newOpenAPI = newParseResult.getOpenAPI();
+        OpenAPI oldOpenAPI = fetchSpecification(oldSpecUrl);
+        OpenAPI newOpenAPI = fetchSpecification(newSpecUrl);
 
 
         var oldEndpoints = extractEndpoints(oldOpenAPI.getPaths(), oldOpenAPI.getComponents());
@@ -87,20 +85,27 @@ public class SpecCompareService {
         return parser.readContents(spec, null, new ParseOptions());
     }
 
-    private String fetchSpecification(String specUrl) {
+    private OpenAPI fetchSpecification(String specUrl) {
 
         RestTemplate restTemplate = new RestTemplate();
+        ResponseEntity<String> responseEntity;
 
-        ResponseEntity<String> responseEntity = restTemplate.getForEntity(specUrl, String.class);
+        try {
+            responseEntity = restTemplate.getForEntity(specUrl, String.class);
+        } catch (Exception e) {
+            // Log the exception and rethrow it as a RuntimeException
+            logger.error("Failed to fetch the specification from URL: " + specUrl, e);
+            throw new RuntimeException("Failed to fetch the specification from URL: " + specUrl, e);
+        }
 
         // Check if the request was successful (HTTP status code 200)
         if (responseEntity.getStatusCode().is2xxSuccessful()) {
             // Return the specification as a string
-            return responseEntity.getBody();
+            return parseSpecification(responseEntity.getBody()).getOpenAPI();
         } else {
             // Handle the case when the request is not successful
-            System.out.println("Failed to fetch the specification. Status code: " + responseEntity.getStatusCode());
-            return "";  // Return an empty string or handle it based on your requirements
+            logger.warn("Failed to fetch the specification. Status code: " + responseEntity.getStatusCode());
+            throw new RuntimeException("Failed to fetch the specification. Status code: " + responseEntity.getStatusCode());
         }
     }
 
@@ -171,37 +176,39 @@ public class SpecCompareService {
             var oldEndPointParams = entry.getValue().getRequestParams();
             var newEndpoint = newEndPoints.get(entry.getKey());
 
-            if (oldEndPointParams != null && newEndpoint != null){
-                List<Parameter> same = oldEndPointParams.stream().filter(param -> newEndpoint.getRequestParams().stream()
-                                .anyMatch(newParam -> areParametersEqual(param, newParam)))
-                        .collect(Collectors.toList());
+            if (oldEndPointParams == null || newEndpoint == null){
+                continue;
+            }
 
-                for (Parameter param : same){
-                    if (!newEndpoint.getRequestParams().stream().anyMatch(newParam -> areParametersEqual(param, newParam))
-                            && param.getRequired()){
-                        System.out.println("Contains breaking changes since some required parameters being changed!");
-                        paramResult.add(DifferenceCase.builder()
-                                .type(Type.REQUIRED_PARAM_CHANGED).entry(Entry.ENDPOINT).endPoint(entry.getValue().getPath()).build());
-                    }
-                }
+            List<Parameter> same = oldEndPointParams.stream().filter(param -> newEndpoint.getRequestParams().stream()
+                            .anyMatch(newParam -> areParametersEqual(param, newParam)))
+                    .collect(Collectors.toList());
 
-                List<Parameter> removed = oldEndPointParams.stream().filter(param -> newEndpoint.getRequestParams().stream()
-                        .noneMatch(newParam -> areParametersEqual(param, newParam))).collect(Collectors.toList());
-
-                List <Parameter> added = newEndpoint.getRequestParams().stream().filter(newParam -> oldEndPointParams.stream()
-                        .noneMatch(param -> areParametersEqual(param, newParam))).collect(Collectors.toList());
-
-                if (removed.stream().anyMatch(Parameter::getRequired)){
-                    System.out.println("Contains breaking changes since some required parameters doesn't exist!");
+            for (Parameter param : same){
+                if (!newEndpoint.getRequestParams().stream().anyMatch(newParam -> areParametersEqual(param, newParam))
+                        && param.getRequired()){
+                    logger.warn("Contains breaking changes since some required parameters being changed!");
                     paramResult.add(DifferenceCase.builder()
-                            .type(Type.REQUIRED_PARAM_NOT_EXIST).entry(Entry.ENDPOINT).endPoint(entry.getValue().getPath()).build());
+                            .type(Type.REQUIRED_PARAM_CHANGED).entry(Entry.ENDPOINT).endPoint(entry.getValue().getPath()).build());
                 }
+            }
 
-                if (added.stream().anyMatch(Parameter::getRequired)){
-                    System.out.println("Contains breaking changes since some required parameters being added!");
-                    paramResult.add(DifferenceCase.builder()
-                            .type(Type.REQUIRED_PARAM_ADDED).entry(Entry.ENDPOINT).endPoint(entry.getValue().getPath()).build());
-                }
+            List<Parameter> removed = oldEndPointParams.stream().filter(param -> newEndpoint.getRequestParams().stream()
+                    .noneMatch(newParam -> areParametersEqual(param, newParam))).collect(Collectors.toList());
+
+            List <Parameter> added = newEndpoint.getRequestParams().stream().filter(newParam -> oldEndPointParams.stream()
+                    .noneMatch(param -> areParametersEqual(param, newParam))).collect(Collectors.toList());
+
+            if (removed.stream().anyMatch(Parameter::getRequired)){
+                logger.warn("Contains breaking changes since some required parameters doesn't exist!");
+                paramResult.add(DifferenceCase.builder()
+                        .type(Type.REQUIRED_PARAM_NOT_EXIST).entry(Entry.ENDPOINT).endPoint(entry.getValue().getPath()).build());
+            }
+
+            if (added.stream().anyMatch(Parameter::getRequired)){
+                logger.warn("Contains breaking changes since some required parameters being added!");
+                paramResult.add(DifferenceCase.builder()
+                        .type(Type.REQUIRED_PARAM_ADDED).entry(Entry.ENDPOINT).endPoint(entry.getValue().getPath()).build());
             }
         }
 
@@ -248,6 +255,12 @@ public class SpecCompareService {
                         method -> method.getValue().apply(pathItem.getValue())));
     }
 
+    private Schema extractSubString(Schema schema, Components components){
+
+        return components.getSchemas()
+                .get(schema.get$ref().substring(schema.get$ref().lastIndexOf("/") + 1));
+    }
+
     //todo: build same method but for response
     private Map<String, String> extractRequestFields(Operation operation, Components components) {
         if (operation.getRequestBody() == null) {
@@ -260,27 +273,25 @@ public class SpecCompareService {
         }
 
         Schema schema = mediaType.getSchema();
-        Schema definition = components.getSchemas().get(schema.get$ref().substring(schema.get$ref().lastIndexOf("/") + 1));
+        Schema definition = extractSubString(schema, components);
 
         // todo: recursive build for path -> type map
         return buildPathTypeMap(definition, ""); // return result from here
     }
 
 
-    private Map<String, String> extractResponseFields(Operation operation, Components components){
+    private Map<String, String> extractResponseFields(Operation operation, Components components) {
         ApiResponse response = operation.getResponses().get("200");
 
-        if (response == null || response.getContent() == null || response.getContent().get("*/*") == null
-                || response.getContent().get("*/*").getSchema().get$ref() == null){
-            return Map.of();
-        }
-
-        Schema schema = response.getContent().get("*/*").getSchema();
-        Schema definition = components.getSchemas().get(schema.get$ref()
-                    .substring(schema.get$ref().lastIndexOf("/") + 1));
-        return buildPathTypeMap(definition, "");
-
+        return Optional.ofNullable(response)
+                .map(ApiResponse::getContent)
+                .map(content -> content.get("*/*"))
+                .map(MediaType::getSchema)
+                .map(schema -> extractSubString(schema, components))
+                .map(definition -> buildPathTypeMap(definition, ""))
+                .orElse(Map.of());
     }
+
 
     private Map<String, String> buildPathTypeMap(Schema<?> schema, String currentPath) {
         Map<String, String> pathTypeMap = new HashMap<>();
