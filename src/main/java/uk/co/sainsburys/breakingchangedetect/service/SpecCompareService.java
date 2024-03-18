@@ -28,6 +28,8 @@ import java.util.stream.Collectors;
 //@RequiredArgsConstructor
 public class SpecCompareService {
 
+    private static final Logger logger = LoggerFactory.getLogger(SpecCompareService.class);
+
     @NoArgsConstructor
     @Data
     private static class Endpoint {
@@ -48,7 +50,6 @@ public class SpecCompareService {
         this.restTemplate = restTemplate;
     }
 
-    private static final Logger logger = LoggerFactory.getLogger(SpecCompareService.class);
 
     /**
      * Compares the specifications of old and new endpoints.
@@ -282,10 +283,10 @@ public class SpecCompareService {
                         method -> method.getValue().apply(pathItem.getValue())));
     }
 
-    private Schema extractSubString(Schema schema, Components components){
+    private Schema extractSchemaByReference(String ref, Components components){
 
         return components.getSchemas()
-                .get(schema.get$ref().substring(schema.get$ref().lastIndexOf("/") + 1));
+                .get(ref.substring(ref.lastIndexOf("/") + 1));
     }
 
     //todo: build same method but for response
@@ -299,8 +300,8 @@ public class SpecCompareService {
             return Map.of();
         }
 
-        Schema schema = mediaType.getSchema();
-        Schema definition = extractSubString(schema, components);
+        String ref = mediaType.getSchema().get$ref();
+        Schema definition = extractSchemaByReference(ref, components);
 
         // todo: recursive build for path -> type map
         return buildPathTypeMap(definition, ""); // return result from here
@@ -311,10 +312,11 @@ public class SpecCompareService {
         ApiResponse response = operation.getResponses().get("200");
 
         return Optional.ofNullable(response)
-                .map(ApiResponse::getContent)
-                .map(content -> content.get("*/*"))
+                .flatMap(resp -> Optional.ofNullable(resp.getContent()))
+                .flatMap(content -> Optional.ofNullable(content.get("*/*")))
                 .map(MediaType::getSchema)
-                .map(schema -> extractSubString(schema, components))
+                .flatMap(schema -> Optional.ofNullable(schema.get$ref()))
+                .map(reference -> extractSchemaByReference(reference, components))
                 .map(definition -> buildPathTypeMap(definition, ""))
                 .orElse(Map.of());
     }
