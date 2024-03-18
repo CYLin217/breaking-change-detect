@@ -12,6 +12,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
@@ -39,12 +40,30 @@ public class SpecCompareService {
 
     private final OpenAPIV3Parser parser;
 
-    private static final Logger logger = LoggerFactory.getLogger(SpecCompareService.class);
+    private final RestTemplate restTemplate;
 
-    public SpecCompareService(OpenAPIV3Parser parser){
+    @Autowired
+    public SpecCompareService(RestTemplate restTemplate, OpenAPIV3Parser parser){
         this.parser = parser;
+        this.restTemplate = restTemplate;
     }
 
+    private static final Logger logger = LoggerFactory.getLogger(SpecCompareService.class);
+
+    /**
+     * Compares the specifications of old and new endpoints.
+     * <p>
+     * There are 4 steps of checks
+     * <li>compare path</li>
+     * <li>compare request body</li>
+     * <li>compare response body</li>
+     * <li>compare parameters</li>
+     * </p>
+     *
+     * @param oldSpecUrl The url of old endpoints.
+     * @param newSpecUrl The url of new endpoints.
+     * @return A list of DifferenceCase objects representing the breaking changes.
+     */
     public List<DifferenceCase> compareSpecifications(String oldSpecUrl, String newSpecUrl) {
 
         List<DifferenceCase> result = new ArrayList<>();
@@ -65,18 +84,6 @@ public class SpecCompareService {
         result.addAll(compareParameters(oldEndpoints, newEndpoints));
 
         return result;
-        // for each path in the old endpoints keyset:
-        //    check that it is still there in newEndpoints, if it isn't, log an error
-        //    if it is, compare the value for that path from oldEndpoints and newEndpoints, in some function where you
-        //    check the operation, request fields, response fields, and request query params have not changed
-
-        // path -- e.g., GET /clusters/something/path/blah/etc
-        // the actual Operation object
-        // the request body
-        // the response body
-        // the request parameters
-
-
     }
 
 
@@ -87,7 +94,6 @@ public class SpecCompareService {
 
     private OpenAPI fetchSpecification(String specUrl) {
 
-        RestTemplate restTemplate = new RestTemplate();
         ResponseEntity<String> responseEntity;
 
         try {
@@ -118,7 +124,9 @@ public class SpecCompareService {
             System.out.println("Paths removed: " + removedPaths);
             System.out.println("Contains breaking change since path(s) have been removed!");
             removedPaths.forEach(path -> pathResult.add(DifferenceCase.builder()
-                    .type(Type.REMOVED_PATH).entry(Entry.ENDPOINT).endPoint(path).build()));
+                    .type(Type.REMOVED_PATH)
+                    .entry(Entry.ENDPOINT)
+                    .endPoint(path).build()));
         }
 
         return pathResult;
@@ -134,7 +142,10 @@ public class SpecCompareService {
             if (newEndpoint != null && !oldEndPoint.getRequestFields().equals(newEndpoint.getRequestFields()) ){
                 System.out.println("Contains breaking changes since request field is difference!");
                 requestResult.add(DifferenceCase.builder()
-                        .type(Type.REQUEST_FIELD_DIFFER).entry(Entry.ENDPOINT).endPoint(entry.getValue().getPath()).build());
+                        .type(Type.REQUEST_FIELD_DIFFER)
+                        .entry(Entry.ENDPOINT)
+                        .endPoint(entry.getValue().getPath())
+                        .build());
             }
         }
 
@@ -153,7 +164,10 @@ public class SpecCompareService {
                     if (!newEndpoint.getResponseFields().containsKey(key)){
                         System.out.println("Contains breaking changes since some response field being removed!");
                         responseResult.add(DifferenceCase.builder()
-                                .type(Type.RESPONSE_FIELD_REMOVED).entry(Entry.ENDPOINT).endPoint(entry.getValue().getPath()).build());
+                                .type(Type.RESPONSE_FIELD_REMOVED)
+                                .entry(Entry.ENDPOINT)
+                                .endPoint(entry.getValue().getPath())
+                                .build());
                     }
                 }
             }
@@ -189,26 +203,39 @@ public class SpecCompareService {
                         && param.getRequired()){
                     logger.warn("Contains breaking changes since some required parameters being changed!");
                     paramResult.add(DifferenceCase.builder()
-                            .type(Type.REQUIRED_PARAM_CHANGED).entry(Entry.ENDPOINT).endPoint(entry.getValue().getPath()).build());
+                            .type(Type.REQUIRED_PARAM_CHANGED)
+                            .entry(Entry.ENDPOINT)
+                            .endPoint(entry.getValue().getPath())
+                            .build());
                 }
             }
 
-            List<Parameter> removed = oldEndPointParams.stream().filter(param -> newEndpoint.getRequestParams().stream()
-                    .noneMatch(newParam -> areParametersEqual(param, newParam))).collect(Collectors.toList());
+            List<Parameter> removed = oldEndPointParams.stream()
+                    .filter(param -> newEndpoint.getRequestParams().stream()
+                    .noneMatch(newParam -> areParametersEqual(param, newParam)))
+                    .collect(Collectors.toList());
 
-            List <Parameter> added = newEndpoint.getRequestParams().stream().filter(newParam -> oldEndPointParams.stream()
-                    .noneMatch(param -> areParametersEqual(param, newParam))).collect(Collectors.toList());
+            List <Parameter> added = newEndpoint.getRequestParams().stream()
+                    .filter(newParam -> oldEndPointParams.stream()
+                    .noneMatch(param -> areParametersEqual(param, newParam)))
+                    .collect(Collectors.toList());
 
             if (removed.stream().anyMatch(Parameter::getRequired)){
                 logger.warn("Contains breaking changes since some required parameters doesn't exist!");
                 paramResult.add(DifferenceCase.builder()
-                        .type(Type.REQUIRED_PARAM_NOT_EXIST).entry(Entry.ENDPOINT).endPoint(entry.getValue().getPath()).build());
+                        .type(Type.REQUIRED_PARAM_NOT_EXIST)
+                        .entry(Entry.ENDPOINT)
+                        .endPoint(entry.getValue().getPath())
+                        .build());
             }
 
             if (added.stream().anyMatch(Parameter::getRequired)){
                 logger.warn("Contains breaking changes since some required parameters being added!");
                 paramResult.add(DifferenceCase.builder()
-                        .type(Type.REQUIRED_PARAM_ADDED).entry(Entry.ENDPOINT).endPoint(entry.getValue().getPath()).build());
+                        .type(Type.REQUIRED_PARAM_ADDED)
+                        .entry(Entry.ENDPOINT)
+                        .endPoint(entry.getValue().getPath())
+                        .build());
             }
         }
 
